@@ -22,12 +22,12 @@ Not a linter. Not a style checker. Incident Lens looks specifically for the code
 **From the Marketplace** *(once published)*:
 Search for `Incident Lens` in the VSCode Extensions panel, or run:
 ```
-ext install vj.vscode-incident-lens
+ext install vathuluri.vscode-incident-lens
 ```
 
 **From source:**
 ```bash
-git clone https://github.com/vj/vscode-incident-lens
+git clone https://github.com/vathuluri/vscode-incident-lens
 cd vscode-incident-lens
 npm install
 npm run compile
@@ -144,7 +144,7 @@ Incident Lens flags:
 
 ## Contributing
 
-Issues and PRs welcome. The 10 detection rules live in `src/reviewer.ts` in the system prompt — if you want to propose a new rule, open an issue with a code example that triggered a real incident.
+Issues and PRs welcome at [github.com/vathuluri/vscode-incident-lens](https://github.com/vathuluri/vscode-incident-lens). The 10 detection rules live in `src/reviewer.ts` in the system prompt — if you want to propose a new rule, open an issue with a code example that triggered a real incident.
 
 ---
 
