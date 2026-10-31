@@ -17,6 +17,8 @@ Not a linter. Not a style checker. Incident Lens looks specifically for the code
 
 ## Quick Start
 
+**Before your first review:** the saved file's full text is sent to Anthropic. Read [privacy, Windows setup, and how to interpret findings](docs/privacy-and-review.md). Use only code you are permitted to send, and review every suggested fix.
+
 ### 1. Install
 
 **From the Marketplace** *(once published)*:
