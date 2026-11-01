@@ -74,6 +74,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
+    "test": "npm run compile && node --test tests/review-response.test.cjs",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts"
   },

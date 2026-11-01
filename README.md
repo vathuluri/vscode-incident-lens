@@ -146,6 +146,8 @@ Incident Lens flags:
 
 ## Contributing
 
+Run `npm ci` and `npm test` to compile the extension and run deterministic model-response validation tests. The tests use synthetic responses and make no external API calls. Malformed findings are skipped as an invalid review rather than treated as a clean result; rule names, severity, required text, and document line ranges are checked before creating diagnostics.
+
 Issues and PRs welcome at [github.com/vathuluri/vscode-incident-lens](https://github.com/vathuluri/vscode-incident-lens). The 10 detection rules live in `src/reviewer.ts` in the system prompt — if you want to propose a new rule, open an issue with a code example that triggered a real incident.
 
 ---

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ReviewResult } from "./types";
+import { parseReviewResponse } from "./review-response";
 
 const SYSTEM_PROMPT = `You are an expert code reviewer specializing in production reliability and incident prevention.
 Your job is to identify patterns in code that are known to cause production incidents — 3am pages, data corruption, cascading failures.
@@ -69,14 +70,7 @@ export async function reviewCode(
     ],
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
-
-  try {
-    const parsed = JSON.parse(text) as ReviewResult;
-    return parsed;
-  } catch {
-    // Claude returned something unparseable — treat as no issues
-    return { issues: [], skipped: true, reason: "parse_error" };
-  }
+  const first = response.content[0];
+  const text = first?.type === "text" ? first.text : "";
+  return parseReviewResponse(text, code.split(/\r\n|\r|\n/).length);
 }
