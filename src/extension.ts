@@ -9,6 +9,8 @@ const SUPPORTED_LANGUAGES = new Set([
 ]);
 
 let debounceTimer: NodeJS.Timeout | undefined;
+let reviewSequence = 0;
+let latestReviews = new WeakMap<vscode.TextDocument, number>();
 
 function getConfig() {
   const cfg = vscode.workspace.getConfiguration("incidentLens");
@@ -21,6 +23,20 @@ function getConfig() {
 }
 
 async function runReview(document: vscode.TextDocument): Promise<void> {
+  if (document.isClosed) return;
+  const version = document.version;
+  const request = ++reviewSequence;
+  latestReviews.set(document, request);
+  const isCurrent = () => !document.isClosed && document.version === version &&
+    latestReviews.get(document) === request && getConfig().enabled;
+  const discardIfStale = () => {
+    if (isCurrent()) return false;
+    // Clear the spinner only if this request still owns the active document.
+    if (latestReviews.get(document) === request && vscode.window.activeTextEditor?.document === document) {
+      getConfig().enabled ? setIdle() : setDisabled();
+    }
+    return true;
+  };
   const config = getConfig();
 
   if (!config.enabled) {
@@ -45,6 +61,10 @@ async function runReview(document: vscode.TextDocument): Promise<void> {
     const code = document.getText();
     const result = await reviewCode(code, document.languageId, config.apiKey);
 
+    // Edits, newer reviews, and Clear Diagnostics invalidate the original snapshot.
+    // A late response must not place findings on different code or undo a clear.
+    if (discardIfStale()) return;
+
     if (result.skipped) {
       setIdle();
       return;
@@ -58,6 +78,7 @@ async function runReview(document: vscode.TextDocument): Promise<void> {
       setClean();
     }
   } catch (err) {
+    if (discardIfStale()) return;
     const message = err instanceof Error ? err.message : String(err);
 
     if (message.includes("401") || message.includes("authentication")) {
@@ -100,6 +121,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const clearCommand = vscode.commands.registerCommand(
     "incidentLens.clearDiagnostics",
     () => {
+      clearTimeout(debounceTimer);
+      latestReviews = new WeakMap();
       clearDiagnostics();
       setIdle();
     }
@@ -117,6 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   clearTimeout(debounceTimer);
+  latestReviews = new WeakMap();
   disposeDiagnostics();
   disposeStatusBar();
 }
