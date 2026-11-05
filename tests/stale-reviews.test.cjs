@@ -7,13 +7,22 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 // deferred model responses. No editor instance or external API is required.
 function setup() {
   const commands = new Map(), requests = [], applied = [], statuses = [], errors = [];
+  const timers = new Map();
+  let onSave, onClose;
+  function withTimers(action) {
+    const previousSet = global.setTimeout, previousClear = global.clearTimeout;
+    global.setTimeout = callback => { const id = {}; timers.set(id, callback); return id; };
+    global.clearTimeout = id => timers.delete(id);
+    try { return action(); } finally { global.setTimeout = previousSet; global.clearTimeout = previousClear; }
+  }
   const config = { enabled: true };
   const document = { version: 1, isClosed: false, lineCount: 2, languageId: 'typescript',
     uri: 'file:///example.ts', getText: () => 'const one = 1;\nconst two = 2;' };
   const vscode = {
     workspace: {
       getConfiguration: () => ({ get: (key, fallback) => config[key] ?? fallback }),
-      onDidSaveTextDocument: () => ({ dispose() {} }),
+      onDidSaveTextDocument: handler => { onSave = handler; return { dispose() {} }; },
+      onDidCloseTextDocument: handler => { onClose = handler; return { dispose() {} }; },
     },
     commands: { registerCommand: (name, handler) => { commands.set(name, handler); return { dispose() {} }; } },
     window: {
@@ -39,9 +48,13 @@ function setup() {
   let extension;
   try { extension = require(path); } finally { Module._load = load; }
   extension.activate({ subscriptions: [] });
-  return { document, vscode, config, requests, applied, statuses, errors, extension,
-    review: () => commands.get('incidentLens.reviewFile')(),
-    clear: () => commands.get('incidentLens.clearDiagnostics')() };
+  return { document, vscode, config, requests, applied, statuses, errors, extension, timers,
+    review: () => withTimers(() => commands.get('incidentLens.reviewFile')()),
+    clear: () => withTimers(() => commands.get('incidentLens.clearDiagnostics')()),
+    save: (doc = document) => withTimers(() => onSave(doc)),
+    close: (doc = document) => withTimers(() => { doc.isClosed = true; onClose(doc); }),
+    deactivate: () => withTimers(() => extension.deactivate()),
+    flush: () => { const callbacks = [...timers.values()]; timers.clear(); callbacks.forEach(callback => callback()); } };
 }
 const finding = label => ({ line: 1, rule: 'UNBOUNDED_RETRY', severity: 'warning', message: label, suggestion: 'Bound attempts.' });
 
@@ -99,4 +112,37 @@ test('current request errors still surface normally', async () => {
   const s = setup(); s.review(); s.requests[0].reject(new Error('401 authentication')); await tick();
   assert.equal(s.errors.length, 1);
   assert.equal(s.statuses.at(-1).name, 'setError');
+});
+test('saving a second document does not cancel the first document review', () => {
+  const s = setup(), second = { ...s.document, uri: 'file:///second.ts' };
+  s.save(); s.save(second);
+  assert.equal(s.timers.size, 2); s.flush();
+  assert.equal(s.requests.length, 2);
+});
+test('repeated saves of one document coalesce into one request', () => {
+  const s = setup(); s.save(); s.save(); s.save();
+  assert.equal(s.timers.size, 1); s.flush();
+  assert.equal(s.requests.length, 1); assert.equal(s.timers.size, 0);
+});
+test('manual review replaces only its own pending save review', () => {
+  const s = setup(), second = { ...s.document, uri: 'file:///second.ts' };
+  s.save(); s.save(second); s.review();
+  assert.equal(s.requests.length, 1); assert.equal(s.timers.size, 1);
+  s.flush(); assert.equal(s.requests.length, 2);
+});
+test('closing a document cancels its timer but preserves another document timer', () => {
+  const s = setup(), second = { ...s.document, uri: 'file:///second.ts' };
+  s.save(); s.save(second); s.close();
+  assert.equal(s.timers.size, 1); s.flush(); assert.equal(s.requests.length, 1);
+});
+test('clearing and deactivation cancel every pending save review', () => {
+  for (const action of ['clear', 'deactivate']) {
+    const s = setup(); s.save(); s.save({ ...s.document, uri: 'file:///second.ts' });
+    s[action](); assert.equal(s.timers.size, 0); s.flush(); assert.equal(s.requests.length, 0);
+  }
+});
+test('disabled, closed, and unsupported documents do not schedule reviews', () => {
+  const s = setup(); s.config.enabled = false; s.save(); s.config.enabled = true;
+  s.save({ ...s.document, isClosed: true }); s.save({ ...s.document, languageId: 'plaintext' });
+  assert.equal(s.timers.size, 0); s.flush(); assert.equal(s.requests.length, 0);
 });

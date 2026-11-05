@@ -8,7 +8,14 @@ const SUPPORTED_LANGUAGES = new Set([
   "python", "go", "java", "csharp",
 ]);
 
-let debounceTimer: NodeJS.Timeout | undefined;
+const debounceTimers = new Map<vscode.TextDocument, NodeJS.Timeout>();
+function cancelScheduledReview(document: vscode.TextDocument): void {
+  clearTimeout(debounceTimers.get(document));
+  debounceTimers.delete(document);
+}
+function cancelAllScheduledReviews(): void {
+  for (const document of debounceTimers.keys()) cancelScheduledReview(document);
+}
 let reviewSequence = 0;
 let latestReviews = new WeakMap<vscode.TextDocument, number>();
 
@@ -94,8 +101,12 @@ async function runReview(document: vscode.TextDocument): Promise<void> {
 
 function scheduleReview(document: vscode.TextDocument): void {
   const config = getConfig();
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => runReview(document), config.debounceMs);
+  cancelScheduledReview(document);
+  if (!config.enabled || document.isClosed || !SUPPORTED_LANGUAGES.has(document.languageId)) return;
+  debounceTimers.set(document, setTimeout(() => {
+    debounceTimers.delete(document);
+    void runReview(document);
+  }, config.debounceMs));
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -112,6 +123,8 @@ export function activate(context: vscode.ExtensionContext): void {
     () => {
       const editor = vscode.window.activeTextEditor;
       if (editor) {
+        // A manual review replaces this document's pending save review.
+        cancelScheduledReview(editor.document);
         runReview(editor.document);
       }
     }
@@ -121,7 +134,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const clearCommand = vscode.commands.registerCommand(
     "incidentLens.clearDiagnostics",
     () => {
-      clearTimeout(debounceTimer);
+      cancelAllScheduledReviews();
       latestReviews = new WeakMap();
       clearDiagnostics();
       setIdle();
@@ -135,11 +148,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
-  context.subscriptions.push(onSave, reviewCommand, clearCommand, onEditorChange);
+  const onClose = vscode.workspace.onDidCloseTextDocument((document) => {
+    cancelScheduledReview(document);
+    latestReviews.delete(document);
+  });
+  context.subscriptions.push(onSave, onClose, reviewCommand, clearCommand, onEditorChange);
 }
 
 export function deactivate(): void {
-  clearTimeout(debounceTimer);
+  cancelAllScheduledReviews();
   latestReviews = new WeakMap();
   disposeDiagnostics();
   disposeStatusBar();
