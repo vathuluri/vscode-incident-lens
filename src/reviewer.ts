@@ -41,12 +41,15 @@ Severity guide:
 - "info"    → relevant pattern worth being aware of`;
 
 let client: Anthropic | null = null;
+let clientKey: string | undefined;
 
 function getClient(apiKey?: string): Anthropic {
-  if (!client || apiKey) {
+  const effectiveKey = apiKey || process.env.ANTHROPIC_API_KEY;
+  if (!client || effectiveKey !== clientKey) {
     client = new Anthropic({
-      apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
+      apiKey: effectiveKey,
     });
+    clientKey = effectiveKey;
   }
   return client;
 }
