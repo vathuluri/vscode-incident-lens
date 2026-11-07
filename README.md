@@ -82,6 +82,8 @@ TypeScript, JavaScript, Python, Go, Java, C#
 
 ## Settings
 
+In a multi-root workspace, settings are resolved for the file being reviewed. A folder can disable review or override its line limit and debounce without changing other folders. Prefer environment variables for credentials; never commit API keys in folder settings. See [privacy and review guidance](docs/privacy-and-review.md).
+
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `incidentLens.apiKey` | `""` | Anthropic API key. Leave empty to use `ANTHROPIC_API_KEY` env var. |

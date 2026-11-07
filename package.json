@@ -49,22 +49,26 @@
       "properties": {
         "incidentLens.apiKey": {
           "type": "string",
+          "scope": "resource",
           "default": "",
           "description": "Anthropic API key. Leave empty to use ANTHROPIC_API_KEY environment variable.",
           "markdownDescription": "Anthropic API key. Leave empty to use `ANTHROPIC_API_KEY` environment variable."
         },
         "incidentLens.enabled": {
           "type": "boolean",
+          "scope": "resource",
           "default": true,
           "description": "Enable automatic review on file save."
         },
         "incidentLens.debounceMs": {
           "type": "number",
+          "scope": "resource",
           "default": 2000,
           "description": "Milliseconds to wait after save before triggering review."
         },
         "incidentLens.maxFileLines": {
           "type": "number",
+          "scope": "resource",
           "default": 500,
           "description": "Skip review for files larger than this line count."
         }

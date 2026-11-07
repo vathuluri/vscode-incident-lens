@@ -7,11 +7,11 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 // deferred model responses. No editor instance or external API is required.
 function setup() {
   const commands = new Map(), requests = [], applied = [], statuses = [], errors = [];
-  const timers = new Map();
+  const timers = new Map(), scopedConfigs = new Map(), delays = [];
   let onSave, onClose;
   function withTimers(action) {
     const previousSet = global.setTimeout, previousClear = global.clearTimeout;
-    global.setTimeout = callback => { const id = {}; timers.set(id, callback); return id; };
+    global.setTimeout = (callback, delay) => { const id = {}; timers.set(id, callback); delays.push(delay); return id; };
     global.clearTimeout = id => timers.delete(id);
     try { return action(); } finally { global.setTimeout = previousSet; global.clearTimeout = previousClear; }
   }
@@ -20,7 +20,7 @@ function setup() {
     uri: 'file:///example.ts', getText: () => 'const one = 1;\nconst two = 2;' };
   const vscode = {
     workspace: {
-      getConfiguration: () => ({ get: (key, fallback) => config[key] ?? fallback }),
+      getConfiguration: (_section, resource) => ({ get: (key, fallback) => scopedConfigs.get(resource)?.[key] ?? config[key] ?? fallback }),
       onDidSaveTextDocument: handler => { onSave = handler; return { dispose() {} }; },
       onDidCloseTextDocument: handler => { onClose = handler; return { dispose() {} }; },
     },
@@ -30,7 +30,7 @@ function setup() {
       showErrorMessage: message => errors.push(message),
     },
   };
-  const reviewer = { reviewCode: () => new Promise((resolve, reject) => requests.push({ resolve, reject })) };
+  const reviewer = { reviewCode: (code, language, apiKey) => new Promise((resolve, reject) => requests.push({ resolve, reject, code, language, apiKey })) };
   const diagnostics = { applyDiagnostics: (doc, issues) => applied.push({ doc, issues }),
     clearDiagnostics: () => applied.splice(0), dispose() {} };
   const statusbar = Object.fromEntries(['setIdle', 'setReviewing', 'setIssuesFound', 'setClean',
@@ -48,7 +48,7 @@ function setup() {
   let extension;
   try { extension = require(path); } finally { Module._load = load; }
   extension.activate({ subscriptions: [] });
-  return { document, vscode, config, requests, applied, statuses, errors, extension, timers,
+  return { document, vscode, config, scopedConfigs, delays, requests, applied, statuses, errors, extension, timers,
     review: () => withTimers(() => commands.get('incidentLens.reviewFile')()),
     clear: () => withTimers(() => commands.get('incidentLens.clearDiagnostics')()),
     save: (doc = document) => withTimers(() => onSave(doc)),
@@ -145,4 +145,40 @@ test('disabled, closed, and unsupported documents do not schedule reviews', () =
   const s = setup(); s.config.enabled = false; s.save(); s.config.enabled = true;
   s.save({ ...s.document, isClosed: true }); s.save({ ...s.document, languageId: 'plaintext' });
   assert.equal(s.timers.size, 0); s.flush(); assert.equal(s.requests.length, 0);
+});
+test('folder-level disabling prevents manual and automatic review of that folder only', () => {
+  const s = setup(), second = { ...s.document, uri: 'file:///other-folder/file.ts' };
+  s.scopedConfigs.set(s.document.uri, { enabled: false });
+  s.review(); s.save(); assert.equal(s.requests.length, 0); assert.equal(s.timers.size, 0);
+  s.vscode.window.activeTextEditor = { document: second }; s.review();
+  assert.equal(s.requests.length, 1);
+});
+test('extension settings declare resource scope so VS Code permits folder overrides', () => {
+  const properties = require('../package.json').contributes.configuration.properties;
+  for (const key of ['enabled', 'apiKey', 'debounceMs', 'maxFileLines']) {
+    assert.equal(properties['incidentLens.' + key].scope, 'resource');
+  }
+});
+test('each document uses its own folder API key rather than a workspace-wide key', () => {
+  const s = setup(), second = { ...s.document, uri: 'file:///other-folder/file.ts' };
+  s.config.apiKey = 'test-workspace-key';
+  s.scopedConfigs.set(s.document.uri, { apiKey: 'test-folder-one-key' });
+  s.scopedConfigs.set(second.uri, { apiKey: 'test-folder-two-key' });
+  s.review(); s.vscode.window.activeTextEditor = { document: second }; s.review();
+  assert.deepEqual(s.requests.map(request => request.apiKey), ['test-folder-one-key', 'test-folder-two-key']);
+});
+test('folder-level file-size limits and debounce settings are respected', () => {
+  const s = setup(); s.scopedConfigs.set(s.document.uri, { maxFileLines: 1, debounceMs: 75 });
+  s.save(); assert.deepEqual(s.delays, [75]); s.flush();
+  assert.equal(s.requests.length, 0);
+  s.scopedConfigs.set(s.document.uri, { maxFileLines: 2 }); s.review();
+  assert.equal(s.requests.length, 1);
+});
+test('folder-level disabling during a request discards results without disabling other folders', async () => {
+  const s = setup(), second = { ...s.document, uri: 'file:///other-folder/file.ts' };
+  s.review(); s.vscode.window.activeTextEditor = { document: second }; s.review();
+  s.scopedConfigs.set(s.document.uri, { enabled: false });
+  s.requests[0].resolve({ issues: [finding('disabled folder')] });
+  s.requests[1].resolve({ issues: [finding('enabled folder')] }); await tick();
+  assert.deepEqual(s.applied.map(entry => entry.doc), [second]);
 });

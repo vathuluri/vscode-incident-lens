@@ -19,8 +19,10 @@ function cancelAllScheduledReviews(): void {
 let reviewSequence = 0;
 let latestReviews = new WeakMap<vscode.TextDocument, number>();
 
-function getConfig() {
-  const cfg = vscode.workspace.getConfiguration("incidentLens");
+function getConfig(document: vscode.TextDocument) {
+  // Resolve folder-level overrides for the document being reviewed, including
+  // its enabled flag and API key in multi-root workspaces.
+  const cfg = vscode.workspace.getConfiguration("incidentLens", document.uri);
   return {
     enabled: cfg.get<boolean>("enabled", true),
     apiKey: cfg.get<string>("apiKey", "") || undefined,
@@ -35,16 +37,16 @@ async function runReview(document: vscode.TextDocument): Promise<void> {
   const request = ++reviewSequence;
   latestReviews.set(document, request);
   const isCurrent = () => !document.isClosed && document.version === version &&
-    latestReviews.get(document) === request && getConfig().enabled;
+    latestReviews.get(document) === request && getConfig(document).enabled;
   const discardIfStale = () => {
     if (isCurrent()) return false;
     // Clear the spinner only if this request still owns the active document.
     if (latestReviews.get(document) === request && vscode.window.activeTextEditor?.document === document) {
-      getConfig().enabled ? setIdle() : setDisabled();
+      getConfig(document).enabled ? setIdle() : setDisabled();
     }
     return true;
   };
-  const config = getConfig();
+  const config = getConfig(document);
 
   if (!config.enabled) {
     setDisabled();
@@ -100,7 +102,7 @@ async function runReview(document: vscode.TextDocument): Promise<void> {
 }
 
 function scheduleReview(document: vscode.TextDocument): void {
-  const config = getConfig();
+  const config = getConfig(document);
   cancelScheduledReview(document);
   if (!config.enabled || document.isClosed || !SUPPORTED_LANGUAGES.has(document.languageId)) return;
   debounceTimers.set(document, setTimeout(() => {
