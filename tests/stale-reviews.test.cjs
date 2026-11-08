@@ -113,6 +113,29 @@ test('current request errors still surface normally', async () => {
   assert.equal(s.errors.length, 1);
   assert.equal(s.statuses.at(-1).name, 'setError');
 });
+test('malformed AI responses show an incomplete-review error instead of returning silently to idle', async () => {
+  for (const reason of ['parse_error', 'invalid_response', undefined]) {
+    const s = setup(); s.review();
+    s.requests[0].resolve({ issues: [], skipped: true, reason }); await tick();
+    assert.equal(s.statuses.at(-1).name, 'setError');
+    assert.match(s.statuses.at(-1).args[0], /review incomplete/i);
+    assert.equal(s.applied.length, 0);
+    assert.equal(s.statuses.some(status => status.name === 'setClean'), false);
+    assert.equal(s.errors.length, 0); // Status feedback, not a popup on every save.
+  }
+});
+test('an incomplete review retains earlier findings and a successful retry can report clean', async () => {
+  const s = setup(); s.review();
+  s.requests[0].resolve({ issues: [finding('earlier risk')] }); await tick();
+  s.review(); s.requests[1].resolve({ issues: [], skipped: true, reason: 'invalid_response' }); await tick();
+  assert.equal(s.applied.length, 1);
+  assert.equal(s.applied[0].issues[0].message, 'earlier risk');
+  assert.equal(s.statuses.at(-1).name, 'setError');
+  s.review(); s.requests[2].resolve({ issues: [] }); await tick();
+  assert.equal(s.applied.length, 2);
+  assert.deepEqual(s.applied[1].issues, []);
+  assert.equal(s.statuses.at(-1).name, 'setClean');
+});
 test('saving a second document does not cancel the first document review', () => {
   const s = setup(), second = { ...s.document, uri: 'file:///second.ts' };
   s.save(); s.save(second);

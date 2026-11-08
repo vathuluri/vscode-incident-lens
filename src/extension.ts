@@ -75,7 +75,7 @@ async function runReview(document: vscode.TextDocument): Promise<void> {
     if (discardIfStale()) return;
 
     if (result.skipped) {
-      setIdle();
+      setError("Review incomplete: the AI response could not be validated. Existing findings were kept. Click to retry.");
       return;
     }
 

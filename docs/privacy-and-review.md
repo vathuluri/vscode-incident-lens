@@ -37,6 +37,8 @@ The model sees one file, so it can miss protections configured elsewhere: a tran
 
 No findings is not a reliability certification. A review that fails or returns an unparseable response is not evidence that the code is safe. This tool supplements code review, testing, observability, and incident analysis.
 
+An unparseable or invalid response shows an error status with a **Review incomplete** tooltip. Existing findings remain visible until a successful review replaces them or you clear them. Click the status bar item to retry; automatic reviews do not display a popup for every malformed response.
+
 ## Contributing a useful example
 
 Use a small synthetic reproduction with no employer or customer data. Include the rule, the failure scenario, the risky code, the proposed correction, and the test or reasoning that demonstrates the difference. Keep external API calls mocked so contributors can run checks without a paid model account.
